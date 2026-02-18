@@ -1,18 +1,21 @@
+
 import mongoose from "mongoose";
 
-let isConnected = false;
-
-const connectDB = async () => {
-  if (isConnected) return;
-
+const connectDB=async()=>{
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URL);
-    isConnected = conn.connections[0].readyState === 1;
-    console.log("MongoDB connected");
+   // Event listeners
+    mongoose.connection.on('connected', () => {
+      console.log("✅ Database connected successfully.");
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.log("⚠️ Database disconnected.");
+    });
+    await mongoose.connect(`${process.env.MONGODB_URL}/PingUp`);
   } catch (error) {
-    console.error(error);
-    throw error;
+     console.error("❌ Database connection failed:", error.message);
+    process.exit(1);
   }
-};
+}
 
 export default connectDB;
