@@ -1,170 +1,201 @@
+// ========================== IMPORTS ==========================
 import Message from "../models/Message.js";
 import imagekit from "../configs/imageKit.js";
+import User from "../models/User.js";
 
-let connections = {}; // { userId: [res, res] }
+// ========================== IN-MEMORY CONNECTION STORE ==========================
+// Stores active SSE connections for each user
+// Structure: { userId: [res, res, ...] }
+let connections = {};
 
-// =======================
-// SSE CONNECTION
-// =======================
+
+// ========================== SSE CONTROLLER ==========================
+/**
+ * Establish Server-Sent Events (SSE) connection
+ * Keeps connection alive and streams real-time data
+ */
 export const sseController = (req, res) => {
+
   const { userId } = req.params;
 
+  // ================= CORS HEADERS =================
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    process.env.FRONTEND_URL
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+
+  // ================= SSE HEADERS =================
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "*");
 
-  // store multiple connections per user
+  // ================= STORE CONNECTION =================
   if (!connections[userId]) connections[userId] = [];
   connections[userId].push(res);
 
-  // initial ping
-  res.write("data: Connected\n\n");
 
-  // keep alive (important for SSE)
+  // ================= HEARTBEAT =================
+  // Keeps connection alive (every 20 sec)
   const interval = setInterval(() => {
-    res.write(":\n\n");
-  }, 25000);
+    res.write(":\n\n"); // SSE comment (heartbeat)
+  }, 20000);
 
+
+  // ================= CLEANUP =================
   req.on("close", () => {
     clearInterval(interval);
-    connections[userId] = connections[userId].filter(r => r !== res);
+
+    // Remove closed connection
+    connections[userId] = connections[userId].filter(
+      (r) => r !== res
+    );
   });
 };
 
-// helper to send data
+
+// ========================== HELPER FUNCTION ==========================
+/**
+ * Send data to all active SSE connections of a user
+ */
 const sendToUser = (userId, data) => {
-  if (connections[userId]) {
-    connections[userId].forEach(res => {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    });
-  }
+
+  if (!connections[userId]) return;
+
+  connections[userId].forEach((res) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  });
 };
 
-// =======================
-// SEND MESSAGE
-// =======================
+
+// ========================== SEND MESSAGE ==========================
+/**
+ * Send a message (text or image)
+ */
 export const sendMessage = async (req, res) => {
   try {
+
+    // ================= AUTH =================
     const { userId } = req.auth();
+
+    // ================= INPUT =================
     const { to_user_id, text } = req.body;
     const file = req.file;
 
-    // validation
-    if (!to_user_id) {
-      return res.status(400).json({ success: false, message: "Receiver required" });
-    }
+    console.log("FILE:", file);
 
+    // ================= VALIDATION =================
     if (!text && !file) {
-      return res.status(400).json({ success: false, message: "Message cannot be empty" });
+      return res.status(400).json({
+        success: false,
+        message: "Message cannot be empty",
+      });
     }
 
     let media_url = null;
     let message_type = "text";
 
-    // =====================
-    // IMAGE UPLOAD
-    // =====================
-    if (file) {
-      if (!file.mimetype.startsWith("image")) {
-        return res.status(400).json({ success: false, message: "Only image allowed" });
-      }
 
-      try {
-        const base64File = file.buffer.toString("base64");
+    // ================= FILE UPLOAD =================
+    // If file exists, upload to ImageKit
+    if (file && file.buffer) {
 
-        const uploadRes = await imagekit.upload({
-          file: base64File,
-          fileName: file.originalname,
-          useUniqueFileName: true,
-          folder: "/messages",
-        });
+      const base64 = file.buffer.toString("base64");
 
-        message_type = "image";
+      const uploadRes = await imagekit.upload({
+        file: base64,
+        fileName: file.originalname,
+      });
 
-        media_url = imagekit.url({
-          path: uploadRes.filePath,
-          transformation: [
-            { quality: "auto" },
-            { format: "webp" },
-            { width: "1280" },
-          ],
-        });
-      } catch (err) {
-        console.error("Upload error:", err);
-        return res.status(500).json({ success: false, message: "Image upload failed" });
-      }
+      media_url = uploadRes.url;
+      message_type = "image";
     }
 
-    // =====================
-    // SAVE MESSAGE
-    // =====================
+
+    // ================= SAVE MESSAGE =================
     const message = await Message.create({
       from_user_id: userId,
       to_user_id,
       text,
-      message_type,
       media_url,
+      message_type,
     });
 
-    // send to receiver
-    sendToUser(to_user_id, { type: "NEW_MESSAGE", message });
 
-    res.json({ success: true, message });
+    // ================= SSE PAYLOAD =================
+    const payload = {
+      type: "NEW_MESSAGE",
+      message,
+    };
+
+
+    // ================= REAL-TIME PUSH =================
+    sendToUser(to_user_id, payload); // receiver
+    sendToUser(userId, payload);     // sender
+
+
+    // ================= RESPONSE =================
+    res.json({
+      success: true,
+      message,
+    });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+
+    console.error("SEND ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
-// =======================
-// GET CHAT MESSAGES
-// =======================
+
+// ========================== GET CHAT MESSAGES ==========================
+/**
+ * Get messages between two users
+ */
 export const getChatMessages = async (req, res) => {
   try {
+
     const { userId } = req.auth();
     const { to_user_id } = req.body;
 
-    if (!to_user_id) {
-      return res.status(400).json({ success: false, message: "Receiver required" });
-    }
-
+    // ================= FETCH MESSAGES =================
     const messages = await Message.find({
       $or: [
         { from_user_id: userId, to_user_id },
         { from_user_id: to_user_id, to_user_id: userId },
       ],
-    }).sort({ createdAt: 1 }); // oldest first
+    }).sort({ createdAt: 1 });
 
-    // mark as seen
-    await Message.updateMany(
-      { from_user_id: to_user_id, to_user_id: userId, seen: false },
-      { seen: true }
-    );
 
-    // notify sender that messages are seen
-    sendToUser(to_user_id, {
-      type: "SEEN",
-      from_user_id: userId,
+    // ================= RESPONSE =================
+    res.json({
+      success: true,
+      messages,
     });
 
-    res.json({ success: true, messages });
-
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
-// =======================
-// GET RECENT MESSAGES (INBOX)
-// =======================
+
+// ========================== GET RECENT MESSAGES ==========================
+/**
+ * Get last message for each conversation (recent chats list)
+ */
 export const getUserRecentMessages = async (req, res) => {
+  
   try {
     const { userId } = req.auth();
 
-    // get last message with each user
     const messages = await Message.aggregate([
       {
         $match: {
@@ -174,9 +205,8 @@ export const getUserRecentMessages = async (req, res) => {
           ],
         },
       },
-      {
-        $sort: { createdAt: -1 },
-      },
+      { $sort: { createdAt: -1 } },
+
       {
         $group: {
           _id: {
@@ -189,52 +219,62 @@ export const getUserRecentMessages = async (req, res) => {
           lastMessage: { $first: "$$ROOT" },
         },
       },
-      {
-        $replaceRoot: { newRoot: "$lastMessage" },
-      },
-      {
-        $sort: { createdAt: -1 },
-      },
+
+      { $replaceRoot: { newRoot: "$lastMessage" } },
+      { $sort: { createdAt: -1 } },
+      
     ]);
 
-    res.json({ success: true, messages });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
+    // ===== MANUAL POPULATION =====
+   const populatedMessages = await Promise.all(
+  messages.map(async (msg) => {
 
-// =======================
-// DELETE MESSAGE (ONLY SENDER)
-// =======================
-export const deleteMessage = async (req, res) => {
-  try {
-    const { userId } = req.auth();
-    const { id } = req.params;
+    const fromUser = await User.findById(msg.from_user_id);
+    const toUser = await User.findById(msg.to_user_id);
 
-    const message = await Message.findById(id);
+    return {
+      ...msg,
 
-    if (!message) {
-      return res.status(404).json({ success: false, message: "Message not found" });
-    }
+      from_user_id: fromUser
+        ? {
+            _id: fromUser._id,
+            full_name: fromUser.full_name,
+            profile_picture: fromUser.profile_picture,
+          }
+        : {
+            _id: msg.from_user_id,
+            full_name: "User",
+            profile_picture: "/default.png",
+          },
 
-    if (String(message.from_user_id) !== String(userId)) {
-      return res.status(403).json({ success: false, message: "Not allowed" });
-    }
+      to_user_id: toUser
+        ? {
+            _id: toUser._id,
+            full_name: toUser.full_name,
+            profile_picture: toUser.profile_picture,
+          }
+        : {
+            _id: msg.to_user_id,
+            full_name: "User",
+            profile_picture: "/default.png",
+          },
+    };
+  })
+);
 
-    await Message.findByIdAndDelete(id);
-
-    // notify receiver
-    sendToUser(message.to_user_id, {
-      type: "DELETE",
-      id,
+    res.json({
+      success: true,
+      messages: populatedMessages,
     });
-
-    res.json({ success: true, id });
+    
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };

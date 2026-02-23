@@ -1,132 +1,142 @@
-// ================== IMPORTS ==================
+// ========================== IMPORTS ==========================
+import React, { useState, useEffect } from "react";
 
-import React, { use } from 'react';
+// Components
+import Loading from "../components/Loading";
+import StoriesBar from "../components/StoriesBar";
+import PostCard from "../components/PostCard";
+import RecentMessages from "../components/RecentMessages";
 
-import { useState, useEffect } from 'react';
+// Auth & API
+import { useAuth } from "@clerk/clerk-react";
+import api from "../api/axios";
 
-import { dummyPostsData, assets } from '../assets/assets';
+// Utilities
+import toast from "react-hot-toast";
 
-import Loading from '../components/Loading';
-
-import StoriesBar from '../components/StoriesBar';
-import PostCard from '../components/PostCard';
-import RecentMessages from '../components/RecentMessages';
+// Assets
+import { assets } from "../assets/assets";
 
 
-// ================== COMPONENT ==================
-
+// ========================== COMPONENT ==========================
 const Feed = () => {
 
-
-  // ================== STATES ==================
-
-  // Stores all feed posts
-  const [feeds, setFeeds] = useState([]);
-
-  // Loading state
-  const [loading, setLoading] = useState(true);
+  // ========================== AUTH ==========================
+  const { getToken } = useAuth();
 
 
+  // ========================== STATE ==========================
+  const [feeds, setFeeds] = useState([]);     // Feed posts
+  const [loading, setLoading] = useState(true); // Loading state
 
-  // ================== FETCH FEEDS ==================
 
+  // ========================== FUNCTIONS ==========================
+  /**
+   * Fetch feed posts from backend
+   */
   const fetchFeeds = async () => {
+    try {
+      setLoading(true);
 
-    // Using dummy data for now
-    setFeeds(dummyPostsData);
+      // Get auth token
+      const token = await getToken();
 
-    // Stop loading
-    setLoading(false);
+      // API request
+      const { data } = await api.get("/api/post/feed", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // Handle response
+      if (data.success) {
+        setFeeds(data.posts || []);
+      } else {
+        toast.error(data.message);
+      }
+
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      // Always stop loading
+      setLoading(false);
+    }
   };
 
 
-
-  // ================== EFFECT ==================
-
-  // Fetch feeds on mount
+  // ========================== EFFECTS ==========================
+  /**
+   * Fetch feed on component mount
+   */
   useEffect(() => {
     fetchFeeds();
   }, []);
 
 
-
-  // ================== UI ==================
-
-  return !loading ? (
+  // ========================== LOADING ==========================
+  if (loading) return <Loading />;
 
 
-    <div className="h-full overflow-y-scroll no-scrollbar py-10 xl:pr-5 flex items-start justify-center xl:gap-8">
+  // ========================== JSX ==========================
+  return (
+    <div className="h-full overflow-y-scroll py-10 flex justify-center gap-8">
 
-
-      {/* ================== LEFT SECTION (STORIES + POSTS) ================== */}
-
+      {/* ========================== LEFT SECTION ========================== */}
       <div>
-
 
         {/* Stories */}
         <StoriesBar />
 
-
-        {/* Posts List */}
+        {/* Posts */}
         <div className="p-4 space-y-6">
 
-          {/* Posts will be rendered here */}
-          {feeds.map((post) => (
-            <PostCard key={post._id} post={post} />
-          ))}
+          {feeds.length === 0 ? (
+            <p className="text-center text-gray-500">
+              No posts yet
+            </p>
+          ) : (
+            feeds.map((post) => (
+              <PostCard key={post._id} post={post} />
+            ))
+          )}
+
         </div>
 
       </div>
 
 
+      {/* ========================== RIGHT SECTION ========================== */}
+      <div className="hidden xl:block sticky top-0">
 
-      {/* ================== RIGHT SIDEBAR ================== */}
+        {/* -------- Sponsored -------- */}
+        <div className="max-w-xs bg-white p-4 rounded shadow">
 
-      <div className="max-xl:hidden sticky top-0">
-
-
-        {/* Sponsored Card */}
-        <div className="max-w-xs bg-white text-xs p-4 rounded-md flex flex-col gap-2 shadow">
-
-
-          <h3 className="text-slate-800 font-semibold">
+          <h3 className="font-semibold">
             Sponsored
           </h3>
 
-
           <img
             src={assets.sponsored_img}
-            alt="Sponsored"
-            className="w-full h-auto rounded-md object-cover"
+            className="w-full rounded mt-2"
+            alt=""
           />
 
-
-          <p className="text-slate-600 font-medium">
-            Email Marketing
+          <p className="text-sm text-gray-500 mt-2">
+            Boost your marketing
           </p>
-
-
-          <p className="text-slate-400 text-sm">
-            Supercharge your marketing with a powerful, easy-to-use platform built for results.
-          </p>
-
 
         </div>
+
+
+        {/* -------- Recent Messages -------- */}
         <RecentMessages />
 
       </div>
 
-
     </div>
-
-  ) : (
-
-
-    // ================== LOADING STATE ==================
-
-    <Loading />
-
   );
 };
 
+
+// ========================== EXPORT ==========================
 export default Feed;

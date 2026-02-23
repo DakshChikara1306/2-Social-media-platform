@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const storySchema = new mongoose.Schema({
-    user:{type:String, ref:'User', required:true},
+    user:{type:String, ref:'User'},
     content:{type:String},
     media_url:{type:String},
     media_type:{type:String, enum:['image', 'video', 'text']},
