@@ -1,9 +1,7 @@
 // ========================== IMPORTS ==========================
 import Story from "../models/Story.js";
 import imagekit from "../configs/imageKit.js";
-import fs from "fs"; // (currently unused)
 import User from "../models/User.js";
-import { inngest } from "../inngest/index.js";
 
 
 // ========================== ADD USER STORY ==========================
@@ -64,10 +62,7 @@ export const addUserStory = async (req, res) => {
 
     // ================= SCHEDULE DELETE =================
     // Send event to Inngest to delete story later
-    await inngest.send({
-      name: "/app/story.delete",
-      data: { storyId: story._id },
-    });
+    
 
 
     // ================= RESPONSE =================
@@ -117,18 +112,20 @@ export const getStories = async (req, res) => {
     // - self
     // - connections
     // - following
-    const userIds = [
-      userId,
-      ...(user.connections || []),
-      ...(user.following || []),
-    ];
+   const userIds = [
+  ...new Set([
+    userId,
+    ...(user.connections || []),
+    ...(user.following || [])
+  ])
+];
 
 
     // ================= FETCH STORIES =================
     const stories = await Story.find({
       user: { $in: userIds },
     })
-      .populate("user")
+      .populate("user", "full_name profile_picture username")
       .sort({ createdAt: -1 });
 
 

@@ -193,28 +193,28 @@ const sendConnectionRequestReminder = inngest.createFunction(
 /**
  * Delete story after 24 hours
  */
-const deleteStory = inngest.createFunction(
-  { id: "story-delete" },
-  { event: "app/story.delete" },
+// const deleteStory = inngest.createFunction(
+//   { id: "story-delete" },
+//   { event: "app/story.delete" },
 
-  async ({ event, step }) => {
+//   async ({ event, step }) => {
 
-    const { storyId } = event.data;
+//     console.log("🟡 Delete event received:", event.data);
 
-    // Wait 24 hours
-    const in24Hours = new Date(Date.now() + 24 * 60 * 60 * 1000);
+//     const { storyId } = event.data;
 
-    await step.sleepUntil("wait-for-24hours", in24Hours);
+//     // ⏳ wait 24 hours (testing ke liye 10s kar sakte ho)
+//     await step.sleep("24h", 24 * 60 * 60 * 1000);
 
+//     console.log("🔴 Deleting story:", storyId);
 
-    // Delete story
-    await step.run("delete-story", async () => {
-      await Story.findByIdAndDelete(storyId);
+//     await Story.findByIdAndDelete(storyId);
 
-      return { message: "Story deleted" };
-    });
-  }
-);
+//     console.log("✅ Story deleted");
+
+//     return { message: "Story deleted" };
+//   }
+// );
 
 
 // ========================== UNSEEN MESSAGE NOTIFICATIONS ==========================
@@ -284,6 +284,5 @@ export const functions = [
   syncUserUpdation,
   syncUserDeletion,
   sendConnectionRequestReminder,
-  deleteStory,
   sendNotificationOfUnseenMessages,
 ];

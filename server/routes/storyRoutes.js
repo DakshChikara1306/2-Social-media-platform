@@ -21,9 +21,9 @@ const storyRouter = express.Router();
  */
 storyRouter.post(
   "/create",
-  upload.single("media"), // handle file upload
-  protect,                // auth middleware
-  addUserStory            // controller
+  protect,
+  upload.single("media"),
+  addUserStory
 );
 
 
